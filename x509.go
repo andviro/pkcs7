@@ -1,3 +1,6 @@
+//go:build !go1.17
+// +build !go1.17
+
 // Copyright 2009 The Go Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style
 // license that can be found in the go/golang LICENSE file.
@@ -130,4 +133,15 @@ func getSignatureAlgorithmFromAI(ai pkix.AlgorithmIdentifier) x509.SignatureAlgo
 	}
 
 	return x509.UnknownSignatureAlgorithm
+}
+
+// ParseCertificate parses a single certificate from the given ASN.1 DER data.
+func ParseCertificate(der []byte) (*x509.Certificate, error) {
+	return x509.ParseCertificate(der)
+}
+
+// ParseCertificates parses one or more certificates from the given ASN.1 DER
+// data. The certificates must be concatenated with no intermediate padding.
+func ParseCertificates(der []byte) ([]*x509.Certificate, error) {
+	return x509.ParseCertificates(der)
 }

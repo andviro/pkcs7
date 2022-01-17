@@ -202,7 +202,7 @@ func (raw rawCertificates) Parse() ([]*x509.Certificate, error) {
 	if val.Class != 2 {
 		data = val.FullBytes
 	}
-	res, err := x509.ParseCertificates(data)
+	res, err := ParseCertificates(data)
 	if err != nil {
 		return nil, xerrors.Errorf("parsing x509 certificates: %w", err)
 	}

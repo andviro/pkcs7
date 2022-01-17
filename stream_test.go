@@ -3,6 +3,7 @@ package pkcs7
 import (
 	"bytes"
 	"crypto/rand"
+	"encoding/json"
 	"io/ioutil"
 	"os"
 	"os/exec"
@@ -60,7 +61,7 @@ func TestEncoder_SignTo(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	content := make([]byte, 10000)
+	content := make([]byte, 100000)
 	if _, err = rand.Read(content); err != nil {
 		t.Fatal(err)
 	}
@@ -158,5 +159,25 @@ func TestVerifyData(t *testing.T) {
 		return nil
 	}); err != nil {
 		t.Errorf("%+v", err)
+	}
+}
+
+func TestParseFiles(t *testing.T) {
+	files, err := filepath.Glob("testdata/*.p7s")
+	if err != nil {
+		t.Skip(err.Error())
+	}
+	for _, f := range files {
+		data, err := ioutil.ReadFile(f)
+		if err != nil {
+			t.Fatal(err)
+		}
+		p7, err := Parse(data)
+		if err != nil {
+			t.Fatalf("Parse encountered unexpected error: %+v", err)
+		}
+		signer := p7.GetOnlySigner()
+		jd, _ := json.Marshal(signer)
+		t.Logf("%s", jd)
 	}
 }
