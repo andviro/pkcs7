@@ -168,16 +168,18 @@ func TestParseFiles(t *testing.T) {
 		t.Skip(err.Error())
 	}
 	for _, f := range files {
-		data, err := ioutil.ReadFile(f)
-		if err != nil {
-			t.Fatal(err)
-		}
-		p7, err := Parse(data)
-		if err != nil {
-			t.Fatalf("Parse encountered unexpected error: %+v", err)
-		}
-		signer := p7.GetOnlySigner()
-		jd, _ := json.Marshal(signer)
-		t.Logf("%s", jd)
+		t.Run(f, func(t *testing.T) {
+			data, err := ioutil.ReadFile(f)
+			if err != nil {
+				t.Fatal(err)
+			}
+			p7, err := Parse(data)
+			if err != nil {
+				t.Fatalf("Parse encountered unexpected error: %+v", err)
+			}
+			signer := p7.GetOnlySigner()
+			jd, _ := json.Marshal(signer)
+			t.Logf("%s", jd)
+		})
 	}
 }

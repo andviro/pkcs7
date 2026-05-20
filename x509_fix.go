@@ -21,6 +21,7 @@ import (
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/asn1"
+	"errors"
 	"fmt"
 	"math/big"
 	"net"
@@ -1279,62 +1280,64 @@ func parseCertificate(der []byte) (*x509.Certificate, error) {
 	// we read the SEQUENCE including length and tag bytes so that
 	// we can populate Certificate.Raw, before unwrapping the
 	// SEQUENCE so it can be operated on
-	if !input.ReadASN1Element(&input, cryptobyte_asn1.SEQUENCE) {
-		return nil, xerrors.New("x509: malformed certificate")
-	}
+	// if !input.ReadASN1Element(&input, cryptobyte_asn1.SEQUENCE) {
+	// 	return nil, errors.New("x509: malformed certificate")
+	// }
 	cert.Raw = input
 	if !input.ReadASN1(&input, cryptobyte_asn1.SEQUENCE) {
-		return nil, xerrors.New("x509: malformed certificate")
+		return nil, errors.New("x509: malformed certificate")
 	}
 
 	var tbs cryptobyte.String
 	// do the same trick again as above to extract the raw
 	// bytes for Certificate.RawTBSCertificate
 	if !input.ReadASN1Element(&tbs, cryptobyte_asn1.SEQUENCE) {
-		return nil, xerrors.New("x509: malformed tbs certificate")
+		return nil, errors.New("x509: malformed tbs certificate")
 	}
 	cert.RawTBSCertificate = tbs
 	if !tbs.ReadASN1(&tbs, cryptobyte_asn1.SEQUENCE) {
-		return nil, xerrors.New("x509: malformed tbs certificate")
+		return nil, errors.New("x509: malformed tbs certificate")
 	}
 
 	if !tbs.ReadOptionalASN1Integer(&cert.Version, cryptobyte_asn1.Tag(0).Constructed().ContextSpecific(), 0) {
-		return nil, xerrors.New("x509: malformed version")
+		return nil, errors.New("x509: malformed version")
 	}
 	if cert.Version < 0 {
-		return nil, xerrors.New("x509: malformed version")
+		return nil, errors.New("x509: malformed version")
 	}
 	// for backwards compat reasons Version is one-indexed,
 	// rather than zero-indexed as defined in 5280
 	cert.Version++
 	if cert.Version > 3 {
-		return nil, xerrors.New("x509: invalid version")
+		return nil, errors.New("x509: invalid version")
 	}
 
 	serial := new(big.Int)
 	if !tbs.ReadASN1Integer(serial) {
-		return nil, xerrors.New("x509: malformed serial number")
+		return nil, errors.New("x509: malformed serial number")
 	}
-	// we ignore the presence of negative serial numbers because
-	// of their prevalence, despite them being invalid
-	// TODO(rolandshoemaker): revist this decision, there are currently
-	// only 10 trusted certificates with negative serial numbers
-	// according to censys.io.
+	// if serial.Sign() == -1 {
+	// 	if x509negativeserial.Value() != "1" {
+	// 		return nil, errors.New("x509: negative serial number")
+	// 	} else {
+	// 		x509negativeserial.IncNonDefault()
+	// 	}
+	// }
 	cert.SerialNumber = serial
 
 	var sigAISeq cryptobyte.String
 	if !tbs.ReadASN1(&sigAISeq, cryptobyte_asn1.SEQUENCE) {
-		return nil, xerrors.New("x509: malformed signature algorithm identifier")
+		return nil, errors.New("x509: malformed signature algorithm identifier")
 	}
 	// Before parsing the inner algorithm identifier, extract
 	// the outer algorithm identifier and make sure that they
 	// match.
 	var outerSigAISeq cryptobyte.String
 	if !input.ReadASN1(&outerSigAISeq, cryptobyte_asn1.SEQUENCE) {
-		return nil, xerrors.New("x509: malformed algorithm identifier")
+		return nil, errors.New("x509: malformed algorithm identifier")
 	}
 	if !bytes.Equal(outerSigAISeq, sigAISeq) {
-		return nil, xerrors.New("x509: inner and outer signature algorithm identifiers don't match")
+		return nil, errors.New("x509: inner and outer signature algorithm identifiers don't match")
 	}
 	sigAI, err := parseAI(sigAISeq)
 	if err != nil {
@@ -1344,7 +1347,7 @@ func parseCertificate(der []byte) (*x509.Certificate, error) {
 
 	var issuerSeq cryptobyte.String
 	if !tbs.ReadASN1Element(&issuerSeq, cryptobyte_asn1.SEQUENCE) {
-		return nil, xerrors.New("x509: malformed issuer")
+		return nil, errors.New("x509: malformed issuer")
 	}
 	cert.RawIssuer = issuerSeq
 	issuerRDNs, err := parseName(issuerSeq)
@@ -1355,7 +1358,7 @@ func parseCertificate(der []byte) (*x509.Certificate, error) {
 
 	var validity cryptobyte.String
 	if !tbs.ReadASN1(&validity, cryptobyte_asn1.SEQUENCE) {
-		return nil, xerrors.New("x509: malformed validity")
+		return nil, errors.New("x509: malformed validity")
 	}
 	cert.NotBefore, cert.NotAfter, err = parseValidity(validity)
 	if err != nil {
@@ -1364,7 +1367,7 @@ func parseCertificate(der []byte) (*x509.Certificate, error) {
 
 	var subjectSeq cryptobyte.String
 	if !tbs.ReadASN1Element(&subjectSeq, cryptobyte_asn1.SEQUENCE) {
-		return nil, xerrors.New("x509: malformed issuer")
+		return nil, errors.New("x509: malformed issuer")
 	}
 	cert.RawSubject = subjectSeq
 	subjectRDNs, err := parseName(subjectSeq)
@@ -1375,15 +1378,15 @@ func parseCertificate(der []byte) (*x509.Certificate, error) {
 
 	var spki cryptobyte.String
 	if !tbs.ReadASN1Element(&spki, cryptobyte_asn1.SEQUENCE) {
-		return nil, xerrors.New("x509: malformed spki")
+		return nil, errors.New("x509: malformed spki")
 	}
 	cert.RawSubjectPublicKeyInfo = spki
 	if !spki.ReadASN1(&spki, cryptobyte_asn1.SEQUENCE) {
-		return nil, xerrors.New("x509: malformed spki")
+		return nil, errors.New("x509: malformed spki")
 	}
 	var pkAISeq cryptobyte.String
 	if !spki.ReadASN1(&pkAISeq, cryptobyte_asn1.SEQUENCE) {
-		return nil, xerrors.New("x509: malformed public key algorithm identifier")
+		return nil, errors.New("x509: malformed public key algorithm identifier")
 	}
 	pkAI, err := parseAI(pkAISeq)
 	if err != nil {
@@ -1392,42 +1395,50 @@ func parseCertificate(der []byte) (*x509.Certificate, error) {
 	cert.PublicKeyAlgorithm = getPublicKeyAlgorithmFromOID(pkAI.Algorithm)
 	var spk asn1.BitString
 	if !spki.ReadASN1BitString(&spk) {
-		return nil, xerrors.New("x509: malformed subjectPublicKey")
+		return nil, errors.New("x509: malformed subjectPublicKey")
 	}
-	cert.PublicKey, err = parsePublicKey(cert.PublicKeyAlgorithm, &publicKeyInfo{
-		Algorithm: pkAI,
-		PublicKey: spk,
-	})
-	if err != nil {
-		return nil, err
+	if cert.PublicKeyAlgorithm != x509.UnknownPublicKeyAlgorithm {
+		cert.PublicKey, err = parsePublicKey(cert.PublicKeyAlgorithm, &publicKeyInfo{
+			Algorithm: pkAI,
+			PublicKey: spk,
+		})
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	if cert.Version > 1 {
-		if !tbs.SkipOptionalASN1(cryptobyte_asn1.Tag(1).Constructed().ContextSpecific()) {
-			return nil, xerrors.New("x509: malformed issuerUniqueID")
+		if !tbs.SkipOptionalASN1(cryptobyte_asn1.Tag(1).ContextSpecific()) {
+			return nil, errors.New("x509: malformed issuerUniqueID")
 		}
-		if !tbs.SkipOptionalASN1(cryptobyte_asn1.Tag(2).Constructed().ContextSpecific()) {
-			return nil, xerrors.New("x509: malformed subjectUniqueID")
+		if !tbs.SkipOptionalASN1(cryptobyte_asn1.Tag(2).ContextSpecific()) {
+			return nil, errors.New("x509: malformed subjectUniqueID")
 		}
 		if cert.Version == 3 {
 			var extensions cryptobyte.String
 			var present bool
 			if !tbs.ReadOptionalASN1(&extensions, &present, cryptobyte_asn1.Tag(3).Constructed().ContextSpecific()) {
-				return nil, xerrors.New("x509: malformed extensions")
+				return nil, errors.New("x509: malformed extensions")
 			}
 			if present {
+				seenExts := make(map[string]bool)
 				if !extensions.ReadASN1(&extensions, cryptobyte_asn1.SEQUENCE) {
-					return nil, xerrors.New("x509: malformed extensions")
+					return nil, errors.New("x509: malformed extensions")
 				}
 				for !extensions.Empty() {
 					var extension cryptobyte.String
 					if !extensions.ReadASN1(&extension, cryptobyte_asn1.SEQUENCE) {
-						return nil, xerrors.New("x509: malformed extension")
+						return nil, errors.New("x509: malformed extension")
 					}
 					ext, err := parseExtension(extension)
 					if err != nil {
 						return nil, err
 					}
+					oidStr := ext.Id.String()
+					if seenExts[oidStr] {
+						return nil, fmt.Errorf("x509: certificate contains duplicate extension with OID %q", oidStr)
+					}
+					seenExts[oidStr] = true
 					cert.Extensions = append(cert.Extensions, ext)
 				}
 				err = processExtensions(cert)
@@ -1440,7 +1451,7 @@ func parseCertificate(der []byte) (*x509.Certificate, error) {
 
 	var signature asn1.BitString
 	if !input.ReadASN1BitString(&signature) {
-		return nil, xerrors.New("x509: malformed signature")
+		return nil, errors.New("x509: malformed signature")
 	}
 	cert.Signature = signature.RightAlign()
 

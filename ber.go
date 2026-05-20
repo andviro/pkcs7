@@ -3,13 +3,12 @@ package pkcs7
 import (
 	"bytes"
 	"errors"
-	"io"
 )
 
+// var encodeIndent = 0
+
 type asn1Object interface {
-	EncodeTo(w io.Writer) error
-	BodyLen() int
-	FullLen() int
+	EncodeTo(writer *bytes.Buffer) error
 }
 
 type asn1Structured struct {
@@ -17,58 +16,42 @@ type asn1Structured struct {
 	content  []asn1Object
 }
 
-func (s asn1Structured) BodyLen() (res int) {
+func (s asn1Structured) EncodeTo(out *bytes.Buffer) error {
+	//fmt.Printf("%s--> tag: % X\n", strings.Repeat("| ", encodeIndent), s.tagBytes)
+	//encodeIndent++
+	inner := new(bytes.Buffer)
 	for _, obj := range s.content {
-		res += obj.FullLen()
-	}
-	return
-}
-
-func (s asn1Structured) FullLen() (res int) {
-	length := s.BodyLen()
-	return s.BodyLen() + len(s.tagBytes) + len(encodeLength(length))
-}
-
-func (s asn1Structured) EncodeTo(out io.Writer) (err error) {
-	if _, err = out.Write(s.tagBytes); err != nil {
-		return
-	}
-	if _, err = out.Write(encodeLength(s.BodyLen())); err != nil {
-		return
-	}
-	for _, obj := range s.content {
-		err = obj.EncodeTo(out)
+		err := obj.EncodeTo(inner)
 		if err != nil {
 			return err
 		}
 	}
+	//encodeIndent--
+	out.Write(s.tagBytes)
+	encodeLength(out, inner.Len())
+	out.Write(inner.Bytes())
 	return nil
 }
 
 type asn1Primitive struct {
 	tagBytes []byte
+	length   int
 	content  []byte
 }
 
-func (p asn1Primitive) EncodeTo(out io.Writer) error {
+func (p asn1Primitive) EncodeTo(out *bytes.Buffer) error {
 	_, err := out.Write(p.tagBytes)
 	if err != nil {
 		return err
 	}
-	if _, err = out.Write(encodeLength(p.BodyLen())); err != nil {
+	if err = encodeLength(out, p.length); err != nil {
 		return err
 	}
-	_, err = out.Write(p.content)
-	return err
-}
+	//fmt.Printf("%s--> tag: % X length: %d\n", strings.Repeat("| ", encodeIndent), p.tagBytes, p.length)
+	//fmt.Printf("%s--> content length: %d\n", strings.Repeat("| ", encodeIndent), len(p.content))
+	out.Write(p.content)
 
-func (p asn1Primitive) BodyLen() int {
-	return len(p.content)
-}
-
-func (p asn1Primitive) FullLen() int {
-	length := p.BodyLen()
-	return p.BodyLen() + len(p.tagBytes) + len(encodeLength(length))
+	return nil
 }
 
 func ber2der(ber []byte) ([]byte, error) {
@@ -89,6 +72,20 @@ func ber2der(ber []byte) ([]byte, error) {
 	//}
 
 	return out.Bytes(), nil
+}
+
+// encodes lengths that are longer than 127 into string of bytes
+func marshalLongLength(out *bytes.Buffer, i int) (err error) {
+	n := lengthLength(i)
+
+	for ; n > 0; n-- {
+		err = out.WriteByte(byte(i >> uint((n-1)*8)))
+		if err != nil {
+			return
+		}
+	}
+
+	return nil
 }
 
 // computes the byte length of an encoded length value
@@ -115,17 +112,22 @@ func lengthLength(i int) (numBytes int) {
 //  200    | 0x81   | 0xC8
 //  500    | 0x82   | 0x01 0xF4
 //
-func encodeLength(length int) (res []byte) {
-	if length < 128 {
-		res = []byte{byte(length)}
-		return
-	}
-	n := lengthLength(length)
-	res = make([]byte, n+1)
-	res[0] = 0x80 | byte(n)
-	for i := 0; i < n; i++ {
-		res[n-i] = byte(length)
-		length >>= 8
+func encodeLength(out *bytes.Buffer, length int) (err error) {
+	if length >= 128 {
+		l := lengthLength(length)
+		err = out.WriteByte(0x80 | byte(l))
+		if err != nil {
+			return
+		}
+		err = marshalLongLength(out, length)
+		if err != nil {
+			return
+		}
+	} else {
+		err = out.WriteByte(byte(length))
+		if err != nil {
+			return
+		}
 	}
 	return
 }
@@ -198,6 +200,7 @@ func readObject(ber []byte, offset int) (asn1Object, int, error) {
 	if kind == 0 {
 		obj = asn1Primitive{
 			tagBytes: ber[tagStart:tagEnd],
+			length:   length,
 			content:  ber[offset:contentEnd],
 		}
 	} else {
@@ -237,7 +240,7 @@ func readObject(ber []byte, offset int) (asn1Object, int, error) {
 }
 
 func isIndefiniteTermination(ber []byte, offset int) (bool, error) {
-	if len(ber)-offset < 2 {
+	if len(ber) - offset < 2 {
 		return false, errors.New("ber2der: Invalid BER format")
 	}
 
