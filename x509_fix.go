@@ -1280,12 +1280,12 @@ func parseCertificate(der []byte) (*x509.Certificate, error) {
 	// we read the SEQUENCE including length and tag bytes so that
 	// we can populate Certificate.Raw, before unwrapping the
 	// SEQUENCE so it can be operated on
-	// if !input.ReadASN1Element(&input, cryptobyte_asn1.SEQUENCE) {
-	// 	return nil, errors.New("x509: malformed certificate")
-	// }
+	if !input.ReadASN1Element(&input, cryptobyte_asn1.SEQUENCE) {
+		return nil, errors.New("x509: malformed certificate 0")
+	}
 	cert.Raw = input
 	if !input.ReadASN1(&input, cryptobyte_asn1.SEQUENCE) {
-		return nil, errors.New("x509: malformed certificate")
+		return nil, errors.New("x509: malformed certificate 2")
 	}
 
 	var tbs cryptobyte.String
@@ -1471,7 +1471,8 @@ func ParseCertificate(der []byte) (*x509.Certificate, error) {
 }
 
 // ParseCertificates parses one or more certificates from the given ASN.1 DER
-// data. The certificates must be concatenated with no intermediate padding.
+// data. The certificates may have some intermittent structures in ASN.1 DER
+// binary format, which will be skipped.
 func ParseCertificates(der []byte) ([]*x509.Certificate, error) {
 	var certs []*x509.Certificate
 	for len(der) > 0 {
@@ -1481,6 +1482,18 @@ func ParseCertificates(der []byte) ([]*x509.Certificate, error) {
 		}
 		certs = append(certs, cert)
 		der = der[len(cert.Raw):]
+		if len(der) != 0 {
+			// XXX special cases for .BY pkcs7 signatures
+			var tag cryptobyte_asn1.Tag
+			input := cryptobyte.String(der)
+			if !input.ReadAnyASN1Element(&input, &tag) {
+				return nil, fmt.Errorf("non-ASN.1 data after certificate")
+			}
+			if tag == cryptobyte_asn1.SEQUENCE {
+				continue
+			}
+			der = der[len(input):]
+		}
 	}
 	return certs, nil
 }
